@@ -1,40 +1,97 @@
 package channel;
+import com.google.gson.Gson;
 
-import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 
-import java.util.Iterator;
+import java.util.LinkedList;
+
+import javax.annotation.PostConstruct;
+
 import org.bson.Document;
+
+import com.mongodb.BasicDBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoCredential;
 
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import core.MessageInfo;
 
 @RestController
 public class Channel {
-    @RequestMapping(value = "/sendMessage", method = RequestMethod.POST)
-    public void getApplications(@RequestBody MessageInfo info) {
-        System.out.println(info.username);
-        System.out.println(info.message);
-        MongoClient mongo = new MongoClient("localhost", 27017);
-        MongoCredential credential = MongoCredential.createCredential("sampleUser", "myDb", "password".toCharArray());
-        System.out.println("Connected to the database successfully");
-        MongoDatabase database = mongo.getDatabase("myDb");
-        MongoCollection<Document> collection = database.getCollection("sampleCollection");
-        Document document = new Document("User", info.username).append("Message", info.message);
-        collection.insertOne(document);
-        System.out.println("Document inserted successfully");
+    private final static int LOGIN_MESSAGE_AMOUNT = 20;
+    private static int currentId = 0;
+
+    private static MongoClient mongo;
+    private static MongoCredential credential;
+    private static MongoDatabase database;
+    private static MongoCollection<Document> collection;
+    
+    @PostConstruct
+    public void init() {
+        System.out.println("TEST");
+        // Login to MongoDB
+        mongo = new MongoClient("localhost", 27017);
+        credential = MongoCredential.createCredential("admin", "Channel-Data", "admin".toCharArray());
+        // Access database and get collection for message information
+        database = mongo.getDatabase("Channel-Data");
+        collection = database.getCollection("Message-Information");
+
+        // Just testing resets collection on start up
+        collection.drop();
+        database.createCollection("Message-Information");
     }
 
-    // Testing Rest Functionality
-    @RequestMapping(value = "/test", method = RequestMethod.PUT)
-    public void getApplications(@RequestBody String test) {
-        System.out.println(test);
+    @RequestMapping(value = "/message", method = RequestMethod.PUT)
+    public void sendMessage(@RequestBody MessageInfo info) {
+        // Get sequential id and update id
+        int messageId = currentId;
+        currentId++;
+
+        // Get data from message info and insert it into the collection
+        Document document = new Document("sequenceId", messageId).append("username", info.username).append("message", info.message);
+        collection.insertOne(document);
+        System.out.println("Document inserted");
+    }
+
+    @RequestMapping(value = "/loginMessages", method = RequestMethod.GET)
+    public LinkedList<MessageInfo> loginMessages() {
+        return getMessages(currentId - LOGIN_MESSAGE_AMOUNT);
+    }
+
+    @RequestMapping(value = "/getMessages/{currentMessageId}", method = RequestMethod.GET)
+    public LinkedList<MessageInfo> getMessages(@PathVariable("currentMessageId") int currentMessageId) {
+        // Create Query
+        BasicDBObject filter = new BasicDBObject();
+        // get all messages which are greater than the current message id
+        filter.append("sequenceId", new Document("$gt", currentMessageId));
+
+        BasicDBObject fields = new BasicDBObject();
+        fields.put("_id", 0);
+        fields.put("sequenceId", 1);
+        fields.put("username", 1);
+        fields.put("message", 1);
+
+        // TODO add orderby clause
+
+        // Getting the iterator
+        MongoCursor<Document> it = collection
+            .find(filter)
+            .projection(fields)
+            .iterator();
+
+        Gson gson = new Gson();
+        LinkedList<MessageInfo> messages = new LinkedList<MessageInfo>();
+        while (it.hasNext()) {
+            MessageInfo message = gson.fromJson(it.next().toJson(), MessageInfo.class);
+            messages.add(message);
+        }
+        return messages;
     }
 }
