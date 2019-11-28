@@ -82,6 +82,7 @@ class MessageUpdater implements Runnable {
         try {
             RestTemplate rest = new RestTemplate();
             while(!exit) {
+                // TODO fix issue where we aren't getting the very first message typed
                 MessageInfo[] messages = rest.getForObject("http://localhost:8084/getMessages/"+currentMessageId, MessageInfo[].class);
                 for (MessageInfo messageData : messages) {
                     // only print messages from other users

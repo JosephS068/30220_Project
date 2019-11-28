@@ -5,7 +5,9 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 
+import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Map;
 
 import javax.annotation.PostConstruct;
 
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
+import core.BotCommand;
 import core.MessageInfo;
 
 @RestController
@@ -35,10 +38,14 @@ public class Channel {
     private static MongoCredential credential;
     private static MongoDatabase database;
     private static MongoCollection<Document> collection;
+
+    private final static Map<String, String> botURLs = new HashMap<String, String>();
     
     @PostConstruct
     public void init() {
-        System.out.println("TEST");
+        // Set up addresses for bots
+        botURLs.put("timer", "http://localhost:8088");
+
         // Login to MongoDB
         mongo = new MongoClient("localhost", 27017);
         credential = MongoCredential.createCredential("admin", "Channel-Data", "admin".toCharArray());
@@ -98,11 +105,12 @@ public class Channel {
         return messages;
     }
 
-    @RequestMapping(value = "/commandBot/{bot}", method = RequestMethod.PUT)
-    public void commandBot(@RequestBody MessageInfo info) {
-        // @PathVariable("bot") String bot,
+    @RequestMapping(value = "/commandBot/{botName}", method = RequestMethod.PUT)
+    public void commandBot(@PathVariable("botName") String botName, @RequestBody MessageInfo info) {
         RestTemplate rest = new RestTemplate();
-        // here we find the proper bot address to send to
-        rest.put("http://localhost:8088/run", info);
+        BotCommand command = new BotCommand(responseAddress, info);
+        // TODO handle error if name not found in map
+        String botURL = botURLs.get(botName);
+        rest.put(botURL + "/run", command);
     }
 }
