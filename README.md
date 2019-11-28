@@ -1,11 +1,11 @@
-To run the databases
-systemctl start mongod
+To run the databases </br>
+`systemctl start mongod`
 
-Checking databases Status
-sudo service mongod status
+Checking databases Status </br>
+`sudo service mongod status`
 
-To run a server
-mvn spring-boot:run
+To run a server </br>
+`mvn spring-boot:run`
 
-To run a Client
-mvn exec:java
+To run a Client </br>
+`mvn exec:java`
