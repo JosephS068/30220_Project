@@ -20,6 +20,7 @@ public class Client {
         //for reading input
         Scanner input = new Scanner(System.in);
 
+        // TODO Limit username to not have brackets 
         System.out.println("Please enter in a username");
         String username = input.nextLine();
 
@@ -41,10 +42,20 @@ public class Client {
         Console console = System.console();
         while(runClient) {
             String message = console.readLine();
+            // Handle user commands
             if(message.equals("!quit")) {
                 runClient = false;
-            }
-            else {
+            // Handling bot commands
+            } else if (message.charAt(0) == '!') {
+                String commandParts[] = message.split(" ", 2);
+                // Get bot name from first word, remove ! from name
+                String botName = commandParts[0].substring(1);
+                String parameters = commandParts[1];
+                MessageInfo info = new MessageInfo(username, parameters);
+                rest.put("http://localhost:8084/commandBot/"+botName, info);
+                // TODO maybe make post for errors
+            // Regular Message to be sent to server
+            } else {
                 MessageInfo info = new MessageInfo(username, message);
                 rest.put("http://localhost:8084/message", info);
             }
