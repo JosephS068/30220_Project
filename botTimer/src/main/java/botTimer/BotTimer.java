@@ -50,25 +50,25 @@ class Timer implements Runnable {
         try {
             boolean parameterError = false;
             switch (units.toLowerCase()) {
-            case "days":
-            case "day":
-                TimeUnit.DAYS.sleep(duration);
-                break;
-            case "hours":
-            case "hour":
-                TimeUnit.HOURS.sleep(duration);
-                break;
-            case "minutes":
-            case "minute":
-                TimeUnit.MINUTES.sleep(duration);
-                break;
-            case "seconds":
-            case "second":
-                TimeUnit.SECONDS.sleep(duration);
-                break;
-            default:
-                parameterError = true;
-                break;
+                case "days":
+                case "day":
+                    TimeUnit.DAYS.sleep(duration);
+                    break;
+                case "hours":
+                case "hour":
+                    TimeUnit.HOURS.sleep(duration);
+                    break;
+                case "minutes":
+                case "minute":
+                    TimeUnit.MINUTES.sleep(duration);
+                    break;
+                case "seconds":
+                case "second":
+                    TimeUnit.SECONDS.sleep(duration);
+                    break;
+                default:
+                    parameterError = true;
+                    break;
             }
             String message;
             if (parameterError) {

@@ -25,19 +25,25 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import core.BotCommand;
+import core.ChannelInfo;
 import core.MessageInfo;
 
 @RestController
 public class Channel {
     private final static int LOGIN_MESSAGE_AMOUNT = 20;
+    private static int currentId = 0;
+
+    public final static String name = "Channel Name";
     private final static String address = "http://localhost:8084";
     private final static String responseAddress = address + "/message";
-    private static int currentId = 0;
+    private final static String description = "This is where you channel description should go";
 
     private static MongoClient mongo;
     private static MongoCredential credential;
     private static MongoDatabase database;
     private static MongoCollection<Document> collection;
+
+    private static RestTemplate rest = new RestTemplate();
 
     private final static Map<String, String> botURLs = new HashMap<String, String>();
     
@@ -53,9 +59,23 @@ public class Channel {
         database = mongo.getDatabase("Channel-Data");
         collection = database.getCollection("Message-Information");
 
+        // Send authentication server channel information
+        ChannelInfo info = new ChannelInfo(name, address, description);
+        rest.put("http://localhost:8080/channel/join", info);
+
         // Just testing resets collection on start up
         collection.drop();
         database.createCollection("Message-Information");
+    }
+
+    @RequestMapping(value = "/welcomeMessage", method = RequestMethod.GET)
+    public String welcomeMessage() {
+        String welcomeMessage = "Welcome to: " + name + "\n"
+        + "@ " + address + "\n"
+        + "Description-----------------" + "\n"
+        + description + "\n"
+        + "----------------------------";
+        return welcomeMessage;
     }
 
     @RequestMapping(value = "/message", method = RequestMethod.PUT)
@@ -107,7 +127,6 @@ public class Channel {
 
     @RequestMapping(value = "/commandBot/{botName}", method = RequestMethod.PUT)
     public void commandBot(@PathVariable("botName") String botName, @RequestBody MessageInfo info) {
-        RestTemplate rest = new RestTemplate();
         BotCommand command = new BotCommand(responseAddress, info);
         // TODO handle error if name not found in map
         String botURL = botURLs.get(botName);
