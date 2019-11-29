@@ -70,7 +70,7 @@ public class Channel {
 
     @RequestMapping(value = "/message", method = RequestMethod.PUT)
     public void sendMessage(@RequestBody MessageInfo info) {
-        // Get sequential id and update id
+        // Get and update sequential id
         int messageId = currentId;
         currentId++;
 
@@ -118,8 +118,11 @@ public class Channel {
     @RequestMapping(value = "/commandBot/{botName}", method = RequestMethod.PUT)
     public void commandBot(@PathVariable("botName") String botName, @RequestBody MessageInfo info) {
         BotCommand command = new BotCommand(responseAddress, info);
-        // TODO handle error if name not found in map
-        String botURL = botURLs.get(botName);
-        rest.put(botURL + "/run", command);
+        if (botURLs.containsKey(botName)) {
+            String botURL = botURLs.get(botName);
+            rest.put(botURL + "/run", command);
+        } else {
+            throw new NoSuchBotException();
+        }
     }
 }

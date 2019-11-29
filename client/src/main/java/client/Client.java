@@ -6,6 +6,8 @@ import org.apache.log4j.Logger;
 import java.io.Console;
 import java.util.concurrent.TimeUnit;
 
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 import core.MessageInfo;
 import core.ChannelInfo;
@@ -13,6 +15,7 @@ import core.ChannelInfo;
 public class Client {
     public static String username;
     public static ChannelInfo currentChannel;
+    public static int currentMessageId;
 
     public static boolean runClient = true;
 
@@ -24,16 +27,12 @@ public class Client {
         Logger.getRootLogger().setLevel(Level.OFF);
         Logger.getLogger(RestTemplate.class.getName()).setLevel(Level.OFF);
 
-        // TODO Limit username to not have brackets 
-        System.out.println("Please enter in a username");
-        username = console.readLine();
-
+        getUsername();
         joinChannel();
 
         MessageInfo[] loginMessages = rest.getForObject(currentChannel.address + "/loginMessages", MessageInfo[].class);
 
         // Prints past messages and saves latest spot
-        int currentMessageId = -1;
         for (MessageInfo messageData : loginMessages) {
             // only print messages from other users
             System.out.println(messageData.username + "> " + messageData.message);
@@ -41,7 +40,7 @@ public class Client {
         }
 
         // Actively checks for new messages and update the UI if new messages are found
-        MessageUpdater updater = new MessageUpdater(currentMessageId);
+        MessageUpdater updater = new MessageUpdater();
         updater.start();
         while(runClient) {
             String message = console.readLine();
@@ -59,6 +58,50 @@ public class Client {
         updater.stop();
     }
 
+    public static void getUsername() {
+        boolean validUsername = false;
+        do {
+            System.out.println("Please enter in a username");
+            username = console.readLine();
+            // [] are for bot names only
+            if (username.contains("[") || username.contains("]")) {
+                System.out.println("You cannot have \'[\' or \']\' in your username, these characters are reserved for bots");
+            } else {
+                validUsername = true;
+            }
+        } while (!validUsername);
+    }
+
+    public static void joinChannel() {
+        // selecting channel
+        String channelList = rest.getForObject("http://localhost:8080/channels", String.class);
+        System.out.println("");
+        System.out.println("Please enter the channel name you would like to join");
+        System.out.println("----------------------------------------------------");
+        System.out.print(channelList);
+        System.out.println("----------------------------------------------------");
+        String channel = console.readLine();
+
+        try {
+            currentChannel = rest.getForObject("http://localhost:8080/channel/info/"+channel, ChannelInfo.class);
+            currentMessageId = -1;
+            displayWelcomeMessage();
+        } catch (HttpClientErrorException e) {
+            System.out.println("Couldn not join specified channel, please try again");
+            // have the user join a channel again
+            joinChannel();
+        }         
+    }
+
+    public static String displayWelcomeMessage() {
+        String welcomeMessage = "Welcome to: " + currentChannel.name + "\n"
+        + "@ " + currentChannel.address + "\n"
+        + "Description-----------------" + "\n"
+        + currentChannel.description + "\n"
+        + "----------------------------";
+        return welcomeMessage;
+    }
+    
     public static void clientCommand(String message) {
         String command = message.substring(1);
         switch (command) {
@@ -74,37 +117,24 @@ public class Client {
         }
     }
 
-    public static void joinChannel() {
-        // selecting channel
-        String channelList = rest.getForObject("http://localhost:8080/channels", String.class);
-        System.out.println("");
-        System.out.println("Please enter the channel name you would like to join");
-        System.out.println("----------------------------------------------------");
-        System.out.println(channelList);
-        System.out.println("----------------------------------------------------");
-        String channel = console.readLine();
-        // Put in try catch for incorrect channel name
-        currentChannel = rest.getForObject("http://localhost:8080/channel/info/"+channel, ChannelInfo.class);
-        displayWelcomeMessage();
-    }
-
-    public static String displayWelcomeMessage() {
-        String welcomeMessage = "Welcome to: " + currentChannel.name + "\n"
-        + "@ " + currentChannel.address + "\n"
-        + "Description-----------------" + "\n"
-        + currentChannel.description + "\n"
-        + "----------------------------";
-        return welcomeMessage;
-    }
-
     public static void botCommand(String message) {
         String commandParts[] = message.split(" ", 2);
         // Get bot name from first word, remove ! from name
         String botName = commandParts[0].substring(1);
-        String parameters = commandParts[1];
+
+        String parameters = "";
+        if (commandParts.length == 2) {
+            parameters = commandParts[1];
+        }
+
         MessageInfo info = new MessageInfo(username, parameters);
-        rest.put(currentChannel.address + "/commandBot/" + botName, info);
-        // TODO maybe make post for errors
+        try {
+            rest.put(currentChannel.address + "/commandBot/" + botName, info);
+        } catch (HttpClientErrorException e) {
+            System.out.println("Bot called does not exist");
+        } catch (HttpServerErrorException e) {
+            System.out.println("Bot was not given proper parameters");
+        }
     }
 
     public static void sendMessage(String message) {
@@ -116,23 +146,20 @@ public class Client {
 // Thread which prints result from broker
 class MessageUpdater implements Runnable {
     private Thread thread;
-    private int currentMessageId;
     private boolean exit=false;
 
-    public MessageUpdater(int currentMessageId) {
-        this.currentMessageId = currentMessageId;
+    public MessageUpdater() {
     }
 
 	public void run() {
         try {
             RestTemplate rest = new RestTemplate();
             while(!exit) {
-                // TODO fix issue where we aren't getting the very first message typed
-                MessageInfo[] messages = rest.getForObject(Client.currentChannel.address + "/getMessages/" + currentMessageId, MessageInfo[].class);
+                MessageInfo[] messages = rest.getForObject(Client.currentChannel.address + "/getMessages/" + Client.currentMessageId, MessageInfo[].class);
                 for (MessageInfo messageData : messages) {
                     // only print messages from other users
                     System.out.println(messageData.username + "> " + messageData.message);
-                    currentMessageId = messageData.sequenceId;
+                    Client.currentMessageId = messageData.sequenceId;
                 }
                 TimeUnit.SECONDS.sleep(1);
             }
@@ -147,7 +174,7 @@ class MessageUpdater implements Runnable {
 
 	public void start() {
         if (thread == null) {
-            thread = new Thread(this, "Print Results");
+            thread = new Thread(this, "Get messages");
             thread.start();
         }
 	}

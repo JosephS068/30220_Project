@@ -16,16 +16,20 @@ public class BotTimer {
     private final static String name = "[TimerBot]";
 
     @RequestMapping(value = "/run", method = RequestMethod.PUT)
-    public void sendMessage(@RequestBody BotCommand command) {
-        String responseAddress = command.getResponseAddress();
-        MessageInfo info = command.getInfo();
-        String[] parameters = info.message.split(" ");
-        String durationString = parameters[0];
-        // TODO handle this not being an int
-        int duration = Integer.parseInt(durationString);
-        String units = parameters[1];
-        Timer thread = new Timer(name, duration, units, info, responseAddress);
-        thread.start();
+    public void sendMessage(@RequestBody BotCommand command) {        
+        try {
+            String responseAddress = command.getResponseAddress();
+            MessageInfo info = command.getInfo();
+            String[] parameters = info.message.split(" ");
+            String durationString = parameters[0];
+            int duration = Integer.parseInt(durationString);
+            String units = parameters[1];
+            Timer thread = new Timer(name, duration, units, info, responseAddress);
+            thread.start();
+        } catch (Exception e) {
+            RestTemplate rest = new RestTemplate();
+            rest.put(command.responseAddress, "Error in parameters");
+        } 
     }
 }
 
