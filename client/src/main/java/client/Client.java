@@ -33,7 +33,7 @@ public class Client {
         MessageInfo[] loginMessages = rest.getForObject(currentChannel.address + "/loginMessages", MessageInfo[].class);
 
         // Prints past messages and saves latest spot
-        int currentMessageId = 0;
+        int currentMessageId = -1;
         for (MessageInfo messageData : loginMessages) {
             // only print messages from other users
             System.out.println(messageData.username + "> " + messageData.message);
@@ -45,7 +45,7 @@ public class Client {
         updater.start();
         while(runClient) {
             String message = console.readLine();
-            if(message.charAt(0) == '!') {
+            if(message.charAt(0) == '/') {
                 clientCommand(message);
             } else if (message.charAt(0) == '!') {
                 botCommand(message);
@@ -85,6 +85,16 @@ public class Client {
         String channel = console.readLine();
         // Put in try catch for incorrect channel name
         currentChannel = rest.getForObject("http://localhost:8080/channel/info/"+channel, ChannelInfo.class);
+        displayWelcomeMessage();
+    }
+
+    public static String displayWelcomeMessage() {
+        String welcomeMessage = "Welcome to: " + currentChannel.name + "\n"
+        + "@ " + currentChannel.address + "\n"
+        + "Description-----------------" + "\n"
+        + currentChannel.description + "\n"
+        + "----------------------------";
+        return welcomeMessage;
     }
 
     public static void botCommand(String message) {
@@ -118,7 +128,7 @@ class MessageUpdater implements Runnable {
             RestTemplate rest = new RestTemplate();
             while(!exit) {
                 // TODO fix issue where we aren't getting the very first message typed
-                MessageInfo[] messages = rest.getForObject(Client.currentChannel.address + "/getMessages/"+currentMessageId, MessageInfo[].class);
+                MessageInfo[] messages = rest.getForObject(Client.currentChannel.address + "/getMessages/" + currentMessageId, MessageInfo[].class);
                 for (MessageInfo messageData : messages) {
                     // only print messages from other users
                     System.out.println(messageData.username + "> " + messageData.message);

@@ -68,16 +68,6 @@ public class Channel {
         database.createCollection("Message-Information");
     }
 
-    @RequestMapping(value = "/welcomeMessage", method = RequestMethod.GET)
-    public String welcomeMessage() {
-        String welcomeMessage = "Welcome to: " + name + "\n"
-        + "@ " + address + "\n"
-        + "Description-----------------" + "\n"
-        + description + "\n"
-        + "----------------------------";
-        return welcomeMessage;
-    }
-
     @RequestMapping(value = "/message", method = RequestMethod.PUT)
     public void sendMessage(@RequestBody MessageInfo info) {
         // Get sequential id and update id
