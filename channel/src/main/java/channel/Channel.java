@@ -125,4 +125,8 @@ public class Channel {
             throw new NoSuchBotException();
         }
     }
+
+    // A method for getting a heart beat from server
+    @RequestMapping(value = "/test", method = RequestMethod.GET)
+    public void test() {}
 }
