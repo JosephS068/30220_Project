@@ -13,10 +13,11 @@ import java.util.concurrent.TimeUnit;
 
 @RestController
 public class BotTimer {
+    RestTemplate rest = new RestTemplate();
     private final static String name = "[TimerBot]";
 
     @RequestMapping(value = "/run", method = RequestMethod.PUT)
-    public void sendMessage(@RequestBody BotCommand command) {        
+    public void startTimer(@RequestBody BotCommand command) {        
         try {
             String responseAddress = command.getResponseAddress();
             MessageInfo info = command.getInfo();
@@ -27,8 +28,7 @@ public class BotTimer {
             Timer thread = new Timer(name, duration, units, info, responseAddress);
             thread.start();
         } catch (Exception e) {
-            RestTemplate rest = new RestTemplate();
-            rest.put(command.responseAddress, "Error in parameters");
+            rest.put(command.responseAddress, "Error in parameters, should be !Timer [duraction] [Units]");
         } 
     }
 }
@@ -41,6 +41,7 @@ class Timer implements Runnable {
     private String units;
     private MessageInfo info;
     private String responseAddress;
+    RestTemplate rest = new RestTemplate();
 
     public Timer(String name, int duration, String units, MessageInfo info, String responseAddress) {
         this.name = name;
@@ -52,6 +53,10 @@ class Timer implements Runnable {
 
     public void run() {
         try {
+            String errorMessage = "Starting " + info.username + "\'s timer for " + duration + " " + units;
+            MessageInfo response = new MessageInfo(name, errorMessage);
+            rest.put(responseAddress, response);
+
             boolean parameterError = false;
             switch (units.toLowerCase()) {
                 case "days":
@@ -81,12 +86,12 @@ class Timer implements Runnable {
             } else {
                 message = info.username + "\'s timer for " + duration + " " + units + " has now completed";
             }
-            RestTemplate rest = new RestTemplate();
             MessageInfo response = new MessageInfo(name, message);
             rest.put(responseAddress, response);
         } catch (InterruptedException e) {
-            // TODO actually handle this error
-            System.out.println("Error occured while reading new messages");
+            String errorMessage = "Dear, " + info.username + " an error has occured while trying to process your request please try again later";
+            MessageInfo response = new MessageInfo(name, errorMessage);
+            rest.put(responseAddress, response);
         }
     }
 
