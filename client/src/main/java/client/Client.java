@@ -66,31 +66,12 @@ public class Client {
             // [] are for bot names only
             if (username.contains("[") || username.contains("]")) {
                 System.out.println("You cannot have \'[\' or \']\' in your username, these characters are reserved for bots");
+            } else if (username.length() < 4) {
+                System.out.println("Your username must have at least 4 letters");
             } else {
                 validUsername = true;
             }
         } while (!validUsername);
-    }
-
-    public static void joinChannel() {
-        // selecting channel
-        String channelList = rest.getForObject("http://localhost:8080/channels", String.class);
-        System.out.println("");
-        System.out.println("Please enter the channel name you would like to join");
-        System.out.println("----------------------------------------------------");
-        System.out.print(channelList);
-        System.out.println("----------------------------------------------------");
-        String channel = console.readLine();
-
-        try {
-            currentChannel = rest.getForObject("http://localhost:8080/channel/info/"+channel, ChannelInfo.class);
-            currentMessageId = -1;
-            displayWelcomeMessage();
-        } catch (HttpClientErrorException e) {
-            System.out.println("Couldn not join specified channel, please try again");
-            // have the user join a channel again
-            joinChannel();
-        }         
     }
 
     public static String displayWelcomeMessage() {
@@ -104,16 +85,67 @@ public class Client {
     
     public static void clientCommand(String message) {
         String command = message.substring(1);
-        switch (command) {
-        case "quit":
-            runClient = false;
+        String commandParts[] = command.split(" ", 2);
+        switch (commandParts[0]) {
+        case "add_bot":
+            addBot(commandParts);
+            break;
+        case "remove_bot":
+            removeBot(commandParts);
+            break;
+        case "show_bots":
+            showBots();
             break;
         case "join":
             joinChannel();
             break;
+        case "quit":
+            runClient = false;
+            break;
         default:
             System.out.println("Unknown client command");
             break;
+        }
+    }
+
+    public static void addBot(String[] commandParts) {
+        if (commandParts.length == 2) {
+            rest.put(currentChannel.address + "/bot/" + commandParts[1], null);
+        } else {
+            System.out.println("Incorrect number of arguements have been past to add bot");
+        }
+    }
+    
+    public static void removeBot(String[] commandParts) {
+        if (commandParts.length == 2) {
+            rest.delete(currentChannel.address + "/bot/" + commandParts[1]);
+        } else {
+            System.out.println("Incorrect number of arguements have been past to remove bot");
+        }
+    }
+    
+    public static void showBots() {
+        String bots = rest.getForObject(currentChannel.address + "/bots", String.class);
+        System.out.print(bots);
+    }
+
+    public static void joinChannel() {
+        String channelList = rest.getForObject("http://localhost:8080/channels", String.class);
+        System.out.println("");
+        System.out.println("Please enter the channel name you would like to join");
+        System.out.println("----------------------------------------------------");
+        System.out.print(channelList);
+        System.out.println("----------------------------------------------------");
+        String channel = console.readLine();
+
+        try {
+            currentChannel = rest.getForObject("http://localhost:8080/channel/" + channel, ChannelInfo.class);
+            currentMessageId = -1;
+            displayWelcomeMessage();
+        } catch (HttpClientErrorException e) {
+            System.out.println("Couldn not join specified channel, please try again");
+            // have the user join a channel again
+            joinChannel();
         }
     }
 
