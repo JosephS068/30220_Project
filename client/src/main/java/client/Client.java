@@ -96,6 +96,15 @@ public class Client {
         case "show_bots":
             showBots();
             break;
+        case "ban":
+            banUser(commandParts);
+            break;
+        case "unban":
+            unbanUser(commandParts);
+            break;
+        case "show_bans":
+            showBans();
+            break;
         case "join":
             joinChannel();
             break;
@@ -129,6 +138,27 @@ public class Client {
         System.out.print(bots);
     }
 
+    public static void banUser(String[] commandParts) {
+        if (commandParts.length == 2) {
+            rest.put(currentChannel.address + "/ban", commandParts[1]);
+        } else {
+            System.out.println("Incorrect number of arguements have been past to remove bot");
+        }
+    }
+
+    public static void unbanUser(String[] commandParts) {
+        if (commandParts.length == 2) {
+            rest.delete(currentChannel.address + "/ban", commandParts[1]);
+        } else {
+            System.out.println("Incorrect number of arguements have been past to remove bot");
+        }
+    }
+
+    public static void showBans() {
+        String bans = rest.getForObject(currentChannel.address + "/ban", String.class);
+        System.out.print(bans);
+    }
+
     public static void joinChannel() {
         String channelList = rest.getForObject("http://localhost:8080/channels", String.class);
         System.out.println("");
@@ -144,18 +174,23 @@ public class Client {
             if (requiresPin) {
                 boolean gainedAccess = providePin();
                 if (gainedAccess) {
-                    displayWelcomeMessage();
+                    
                 } else {
                     System.out.println("You did not gain access to channel, please join another one");
                     joinChannel();
                 }
+            } else {
+                displayWelcomeMessage();
             }
         } catch (HttpClientErrorException e) {
             int statusCode = e.getRawStatusCode();
             switch (statusCode) {
+                case 403:
+                    System.out.println("You are banned, join a different channel or get out");
+                    joinChannel();
+                    break;
                 case 404:
                     System.out.println("Channel could not be found, please try again");
-                    // prompt them to join a channel again
                     joinChannel();
                     break;
             }

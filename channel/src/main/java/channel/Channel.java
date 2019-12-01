@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.io.Console;
 
 import javax.annotation.PostConstruct;
@@ -21,11 +22,12 @@ import com.mongodb.MongoClient;
 import com.mongodb.MongoCredential;
 
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
 
 import core.BotCommand;
 import core.BotInfo;
@@ -38,11 +40,13 @@ public class Channel {
     private static int currentId = 0;
 
     private static String name;
+    private static String displayName;
     private static String address;
     private static String responseAddress;
     private static String description;
     private static boolean requiresPin;
     private static char[] pin;
+    public static ChannelInfo info;
 
     private static MongoClient mongo;
     private static MongoCredential credential;
@@ -54,7 +58,9 @@ public class Channel {
 
     private final static Map<String, String> botURLs = new HashMap<String, String>();
     // Create mongodb for this later
-    ArrayList<String> validUsers = new ArrayList<String>();
+    private final static ArrayList<String> authorizedUsers = new ArrayList<String>();
+    private final static ArrayList<String> bannedUsers = new ArrayList<String>();
+    // private final static ArrayList<String> adminUsers = new ArrayList<String>();
     
     @PostConstruct
     public void init() {
@@ -68,12 +74,15 @@ public class Channel {
         collection = database.getCollection("Message-Information");
 
         // Send authentication server channel information
-        ChannelInfo info = new ChannelInfo(name, address, description);
+        info = new ChannelInfo(name, address, description);
         rest.put("http://localhost:8080/channel", info);
 
         // Just testing resets collection on start up
         collection.drop();
         database.createCollection("Message-Information");
+
+        AuthServerChecker checker = new AuthServerChecker(name);
+        checker.start();
     }
 
     public void getServerInformation() {
@@ -82,6 +91,7 @@ public class Channel {
         System.out.println("This server has not been configured before, please provide additional details");
         System.out.println("What is the name of this server?");
         name = console.readLine();
+        displayName = "<" + name + ">";
 
         System.out.println("What is the address of this server(Name:Port)?");
         address = "http://" + console.readLine();
@@ -109,7 +119,6 @@ public class Channel {
                 System.out.println("please enter in \'y\' or \'n\'");
             }
         } while(!validResponse);
-
         System.out.println("Thank you, the server will now finish start up");
     }
 
@@ -196,17 +205,19 @@ public class Channel {
         }
     }
 
-    public void validUser(String username) {
-        if (!validUsers.contains(username)) {
+    public void isValidUser(String username) {
+        if (requiresPin && !authorizedUsers.contains(username)) {
             throw new NotAuthorizedException();
+        } 
+        if (bannedUsers.contains(username)) {
+            throw new BannedUserException();
         }
-        // check black or white list, later feature
     }
 
     @RequestMapping(value = "/authenticate/{user}", method = RequestMethod.GET)
     public Boolean requiresPin(@PathVariable("user") String username) {
+        isValidUser(username);
         return new Boolean(requiresPin);
-        // thorw some error if the user is banned
     }
 
     @RequestMapping(value = "/authenticate/{user}", method = RequestMethod.PUT)
@@ -221,11 +232,40 @@ public class Channel {
         }
         
         if (pinsMatch) {
-            validUsers.add(username);
+            authorizedUsers.add(username);
         } else {
             throw new InvalidPinException();
         }
     }
+
+    @RequestMapping(value = "/ban", method = RequestMethod.PUT)
+    public void banUser(@RequestBody String username) {
+        bannedUsers.add(username);
+        MessageInfo info = new MessageInfo(displayName, username + " just got clapped");
+        sendMessage(info);
+        // throw error if you aren't admin
+        // thorw error if already present
+    }
+
+    @RequestMapping(value = "/ban", method = RequestMethod.DELETE)
+    public void unbanUser(@RequestBody String username) {
+        bannedUsers.remove(username);
+        MessageInfo info = new MessageInfo(displayName, username + "Has risen from the dead, aka unbanned");
+        sendMessage(info);
+        // throw error if you aren't admin
+        // error if not found
+    }
+
+    @RequestMapping(value = "/ban", method = RequestMethod.GET)
+    public String showBans() {
+        String bannedUsernames = "------Banned Users------" + "\n";
+        for (String username : bannedUsers) {
+            bannedUsernames += username + "\n";
+        }
+        return bannedUsernames;
+    }
+
+    
 
     @RequestMapping(value = "/bot/{botName}", method = RequestMethod.PUT)
     public void addBot(@PathVariable("botName") String botName) {
@@ -237,7 +277,8 @@ public class Channel {
                 return;
             }
         }
-        System.out.println("Bot: " + botName + " could not be found");
+        MessageInfo info = new MessageInfo(displayName, "Bot: " + botName + " could not be found");
+        sendMessage(info);
     }
 
     @RequestMapping(value = "/bot/{botName}", method = RequestMethod.DELETE)
@@ -245,9 +286,12 @@ public class Channel {
         String results = botURLs.remove(botName);
         // if map returns null it means the key did not have an association
         if (results == null) {
-            System.out.println("Bot: " + botName + " was not found and therefore could not be removed");
+            MessageInfo info = new MessageInfo(displayName, "Bot: " + botName + " was not found and therefore could not be removed");
+            sendMessage(info);
         } else {
-            System.out.println("Bot: " + botName + " has been removed");
+            System.out.println();
+            MessageInfo info = new MessageInfo(displayName, "Bot: " + botName + " has been removed");
+            sendMessage(info);
         }
     }
 
@@ -270,7 +314,6 @@ public class Channel {
         // Get data from message info and insert it into the collection
         Document document = new Document("sequenceId", messageId).append("username", info.username).append("message", info.message);
         collection.insertOne(document);
-        System.out.println("Document inserted");
     }
 
     @RequestMapping(value = "/loginMessages", method = RequestMethod.GET)
@@ -322,4 +365,45 @@ public class Channel {
     // A method for getting a heart beat from server
     @RequestMapping(value = "/test", method = RequestMethod.PUT)
     public void test() {}
+}
+
+// Thread that checks Authentication sever to see if the following channel is on its registry
+// If it is not found, it will add itself to it
+class AuthServerChecker implements Runnable {
+    private Thread thread;
+    private String name;
+    RestTemplate rest = new RestTemplate();
+
+    public AuthServerChecker(String name) {
+        this.name = name;
+    }
+
+    public void run() {
+        while(true) {
+            try{
+                // this will not be 10 seconds in production
+                TimeUnit.SECONDS.sleep(60);
+                rest.getForObject("http://localhost:8080/channel/" + name, ChannelInfo.class);
+            } catch (InterruptedException e) {
+                System.out.println("Error occured while checking auth server registry");
+            } catch (HttpClientErrorException e) {
+                int statusCode = e.getRawStatusCode();
+                switch (statusCode) {
+                case 404:
+                    System.out.println("Channel was not found in auth server, adding it back");
+                    rest.put("http://localhost:8080/channel", Channel.info);
+                    break;
+                }
+            } catch (Exception e) {
+                System.out.println("Error occured while checking auth server registry");
+            }
+        }
+    }
+
+    public void start() {
+        if (thread == null) {
+            thread = new Thread(this, "Starting auth checker");
+            thread.start();
+        }
+    }
 }

@@ -105,7 +105,7 @@ public class AuthenticationServer {
             try {
                 rest.put(info.address + "/test", null);
             } catch (Exception e) {
-                // Exception occured while testing, assume server is not active remove from list
+                // Exception occured while testing, assume bot is not active remove from list
                 botsInfo.remove(info.name);
             }
         }
