@@ -41,6 +41,8 @@ public class Channel {
     private static String address;
     private static String responseAddress;
     private static String description;
+    private static boolean requiresPin;
+    private static char[] pin;
 
     private static MongoClient mongo;
     private static MongoCredential credential;
@@ -51,6 +53,8 @@ public class Channel {
     public static Console console = System.console();
 
     private final static Map<String, String> botURLs = new HashMap<String, String>();
+    // Create mongodb for this later
+    ArrayList<String> validUsers = new ArrayList<String>();
     
     @PostConstruct
     public void init() {
@@ -65,7 +69,7 @@ public class Channel {
 
         // Send authentication server channel information
         ChannelInfo info = new ChannelInfo(name, address, description);
-        rest.put("http://localhost:8080/channel/", info);
+        rest.put("http://localhost:8080/channel", info);
 
         // Just testing resets collection on start up
         collection.drop();
@@ -89,10 +93,23 @@ public class Channel {
         description = console.readLine();
 
         addBots();
-                
-        // System.out.println("Does this server need a pin?");
-        // System.out.println("Please enter pin");
-        // System.out.println("validate pin");
+        boolean validResponse;
+        do {
+            System.out.println("Does this server need a pin?(y/n)");
+            String response = console.readLine();
+            if (response.equals("y")) {
+                validResponse = true;
+                requiresPin = true;
+                addPin();
+            } else if(response.equals("n")){
+                validResponse = true;
+                requiresPin = false;
+            } else {
+                validResponse = false;
+                System.out.println("please enter in \'y\' or \'n\'");
+            }
+        } while(!validResponse);
+
         System.out.println("Thank you, the server will now finish start up");
     }
 
@@ -129,7 +146,7 @@ public class Channel {
                     botNames.remove(info.name);
                 }
             }
-            // TODO this is starting look like call back hell, fix this
+            
             if (botNames.size() != 0) {
                 System.out.println("The following bots could not be added");
                 System.out.println("--------------------------------");
@@ -156,6 +173,60 @@ public class Channel {
         }
     }
 
+    public void addPin() {
+        System.out.println("Please enter in your pin");
+        char[] initialPin = console.readPassword();
+        System.out.println("Please confirm your pin");
+        char[] confirmPin = console.readPassword();
+        boolean pinsMatch = true;
+        if (initialPin.length == confirmPin.length) {
+            for (int i=0; i< initialPin.length; i++) {
+                pinsMatch &= initialPin[i] == confirmPin[i];
+            }
+        } else {
+            pinsMatch = false;
+        }
+
+        if (!pinsMatch) {
+            System.out.println("Your pins do not match, try again");
+            addPin();
+        } else {
+            pin = initialPin;
+            System.out.println("Pin for server has been set");
+        }
+    }
+
+    public void validUser(String username) {
+        if (!validUsers.contains(username)) {
+            throw new NotAuthorizedException();
+        }
+        // check black or white list, later feature
+    }
+
+    @RequestMapping(value = "/authenticate/{user}", method = RequestMethod.GET)
+    public Boolean requiresPin(@PathVariable("user") String username) {
+        return new Boolean(requiresPin);
+        // thorw some error if the user is banned
+    }
+
+    @RequestMapping(value = "/authenticate/{user}", method = RequestMethod.PUT)
+    public void authenticateUser(@PathVariable("user") String username, @RequestBody char[] enteredPin) {
+        boolean pinsMatch = true;
+        if (pin.length == enteredPin.length) {
+            for (int i = 0; i < enteredPin.length; i++) {
+                pinsMatch = pinsMatch && pin[i] == enteredPin[i];
+            }
+        } else {
+            pinsMatch = false;
+        }
+        
+        if (pinsMatch) {
+            validUsers.add(username);
+        } else {
+            throw new InvalidPinException();
+        }
+    }
+
     @RequestMapping(value = "/bot/{botName}", method = RequestMethod.PUT)
     public void addBot(@PathVariable("botName") String botName) {
         BotInfo[] botsInformation = rest.getForObject("http://localhost:8080/botsInformation", BotInfo[].class);
@@ -169,7 +240,6 @@ public class Channel {
         System.out.println("Bot: " + botName + " could not be found");
     }
 
-    //Error handle
     @RequestMapping(value = "/bot/{botName}", method = RequestMethod.DELETE)
     public void removeBot(@PathVariable("botName") String botName) {
         String results = botURLs.remove(botName);

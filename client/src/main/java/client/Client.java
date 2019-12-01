@@ -74,13 +74,13 @@ public class Client {
         } while (!validUsername);
     }
 
-    public static String displayWelcomeMessage() {
+    public static void displayWelcomeMessage() {
         String welcomeMessage = "Welcome to: " + currentChannel.name + "\n"
         + "@ " + currentChannel.address + "\n"
         + "Description-----------------" + "\n"
         + currentChannel.description + "\n"
         + "----------------------------";
-        return welcomeMessage;
+        System.out.println(welcomeMessage);
     }
     
     public static void clientCommand(String message) {
@@ -137,16 +137,76 @@ public class Client {
         System.out.print(channelList);
         System.out.println("----------------------------------------------------");
         String channel = console.readLine();
-
         try {
             currentChannel = rest.getForObject("http://localhost:8080/channel/" + channel, ChannelInfo.class);
             currentMessageId = -1;
-            displayWelcomeMessage();
+            boolean requiresPin = rest.getForObject(currentChannel.address + "/authenticate/" + username, Boolean.class).booleanValue();
+            if (requiresPin) {
+                boolean gainedAccess = providePin();
+                if (gainedAccess) {
+                    displayWelcomeMessage();
+                } else {
+                    System.out.println("You did not gain access to channel, please join another one");
+                    joinChannel();
+                }
+            }
         } catch (HttpClientErrorException e) {
-            System.out.println("Couldn not join specified channel, please try again");
-            // have the user join a channel again
-            joinChannel();
+            int statusCode = e.getRawStatusCode();
+            switch (statusCode) {
+                case 404:
+                    System.out.println("Channel could not be found, please try again");
+                    // prompt them to join a channel again
+                    joinChannel();
+                    break;
+            }
         }
+    }
+
+    public static boolean providePin() {
+        System.out.println("You must provide a pin to server");
+        boolean validPin;
+        char[] pin = console.readPassword();
+        try {
+            rest.put(currentChannel.address + "/authenticate/" + username, pin);
+            System.out.println("Your pin is valid");
+            validPin = true;
+            return validPin;
+        } catch (HttpClientErrorException e) {
+            int statusCode = e.getRawStatusCode();
+            validPin = false;
+            switch (statusCode) {
+            case 401:
+                System.out.println("You entered in the wrong pin would you like to try again?(y/n)");
+                boolean validResponse;
+                do {
+                    String response = console.readLine();
+                    if (response.equals("y")) {
+                        validResponse = true;
+                        validPin = providePin();
+                    } else if (response.equals("n")) {
+                        validResponse = true;
+                    } else {
+                        validResponse = false;
+                        System.out.println("please enter in \'y\' or \'n\'");
+                    }
+                } while (!validResponse);
+                break;
+            default:
+                break;
+            }
+            return validPin;
+        }
+    }
+
+    public static void giveAuthorization() {
+        System.out.println("You are not authorized to access that server, please provide a password");
+        char[] pin = console.readPassword();
+        rest.put(currentChannel.address + "/authorize", pin);
+    }
+
+    public static void serverForbidden() {
+        System.out.println("You are banned from this server and cannot join, please join another channel");
+        joinChannel();
     }
 
     public static void botCommand(String message) {
