@@ -33,6 +33,8 @@ import core.BotCommand;
 import core.BotInfo;
 import core.ChannelInfo;
 import core.MessageInfo;
+import core.ChannelCommand;
+import core.CommandLineHelper;
 
 @RestController
 public class Channel {
@@ -60,11 +62,11 @@ public class Channel {
     // Create mongodb for this later
     private final static ArrayList<String> authorizedUsers = new ArrayList<String>();
     private final static ArrayList<String> bannedUsers = new ArrayList<String>();
-    // private final static ArrayList<String> adminUsers = new ArrayList<String>();
+    private final static ArrayList<String> adminUsers = new ArrayList<String>();
     
     @PostConstruct
     public void init() {
-        getServerInformation();
+        serverConfiguration();
 
         // Login to MongoDB
         mongo = new MongoClient("localhost", 27017);
@@ -85,40 +87,40 @@ public class Channel {
         checker.start();
     }
 
-    public void getServerInformation() {
-        // check mongo db first
-        // Configuration of server from user input
+    // Configuration of server from user input
+    public void serverConfiguration() {
         System.out.println("This server has not been configured before, please provide additional details");
-        System.out.println("What is the name of this server?");
-        name = console.readLine();
-        displayName = "<" + name + ">";
+        name = CommandLineHelper.getServerName();
+        displayName = "{" + name + "}";
 
         System.out.println("What is the address of this server(Name:Port)?");
-        address = "http://" + console.readLine();
+        address = "http://" + CommandLineHelper.noNullInput();
         // TODO take this line out its for testing only
         address = "http://localhost:8084";
         responseAddress = address + "/message";
 
         System.out.println("What is the description of this server?");
-        description = console.readLine();
+        description = CommandLineHelper.noNullInput();
 
         addBots();
-        boolean validResponse;
+
+        System.out.println("Would you like a pin for this server?(y/n)");
+        requiresPin = CommandLineHelper.responseYesNo();
+        if (requiresPin) {
+            addPin();
+        }
+
+        String adminAccount;
+        boolean validName;
         do {
-            System.out.println("Does this server need a pin?(y/n)");
-            String response = console.readLine();
-            if (response.equals("y")) {
-                validResponse = true;
-                requiresPin = true;
-                addPin();
-            } else if(response.equals("n")){
-                validResponse = true;
-                requiresPin = false;
-            } else {
-                validResponse = false;
-                System.out.println("please enter in \'y\' or \'n\'");
-            }
-        } while(!validResponse);
+            System.out.println("Name of admin user");
+            adminAccount = CommandLineHelper.noNullInput();
+            System.out.println("Is " + adminAccount + " the correct user?(y/n)");
+            validName = CommandLineHelper.responseYesNo();
+        } while (!validName);
+
+        adminUsers.add(adminAccount);
+
         System.out.println("Thank you, the server will now finish start up");
     }
 
@@ -140,7 +142,7 @@ public class Channel {
         System.out.println("----------------------------------------------------");
         System.out.print(botList);
         System.out.println("----------------------------------------------------");
-        String bots = console.readLine();
+        String bots = CommandLineHelper.noNullInput();
         ArrayList<String> botNames = new ArrayList<String>(Arrays.asList(bots.split(" ")));
         
         
@@ -175,8 +177,8 @@ public class Channel {
         System.out.println("--------------------------------");
         System.out.println("");
         System.out.println("Does this look correct?(y/n)");
-        String response = console.readLine();
-        if (!response.toLowerCase().equals("y")) {
+        boolean addBots = CommandLineHelper.responseYesNo();
+        if (!addBots) {
             botURLs.clear();
             addBots();
         }
@@ -205,19 +207,32 @@ public class Channel {
         }
     }
 
-    public void isValidUser(String username) {
+    public void authorizationCheck(String username) {
         if (requiresPin && !authorizedUsers.contains(username)) {
             throw new NotAuthorizedException();
-        } 
+        }
+    }
+
+    public void banCheck(String username) {
         if (bannedUsers.contains(username)) {
             throw new BannedUserException();
         }
     }
 
+    public void adminCheck(String username) {
+        if (!adminUsers.contains(username)) {
+            throw new RequiresAdminException();
+        }
+    }
+
     @RequestMapping(value = "/authenticate/{user}", method = RequestMethod.GET)
     public Boolean requiresPin(@PathVariable("user") String username) {
-        isValidUser(username);
-        return new Boolean(requiresPin);
+        banCheck(username);
+        if (authorizedUsers.contains(username)) {
+            return new Boolean(false);
+        } else {
+            return new Boolean(requiresPin);
+        }
     }
 
     @RequestMapping(value = "/authenticate/{user}", method = RequestMethod.PUT)
@@ -239,21 +254,31 @@ public class Channel {
     }
 
     @RequestMapping(value = "/ban", method = RequestMethod.PUT)
-    public void banUser(@RequestBody String username) {
-        bannedUsers.add(username);
-        MessageInfo info = new MessageInfo(displayName, username + " just got clapped");
-        sendMessage(info);
-        // throw error if you aren't admin
-        // thorw error if already present
+    public void banUser(@RequestBody ChannelCommand command) {
+        adminCheck(command.issuer);
+        String banMessage;
+        if (!bannedUsers.contains(command.subject)) {
+            bannedUsers.add(command.subject);
+            banMessage = command.subject + " just got clapped";
+        } else {
+            banMessage = command.subject + " just got clapped again, a double ban isn't a thing though";
+        }
+        MessageInfo info = new MessageInfo(displayName, banMessage);
+        sendMessage(info);        
     }
 
-    @RequestMapping(value = "/ban", method = RequestMethod.DELETE)
-    public void unbanUser(@RequestBody String username) {
-        bannedUsers.remove(username);
-        MessageInfo info = new MessageInfo(displayName, username + "Has risen from the dead, aka unbanned");
+    @RequestMapping(value = "/ban/{issuer}/{subject}", method = RequestMethod.DELETE)
+    public void unbanUser(@PathVariable("issuer") String issuer, @PathVariable("subject") String subject) {
+        adminCheck(issuer);
+        String unbanMessage;
+        if (!bannedUsers.contains(subject)) {
+            unbanMessage = subject + " was supposed to be unbanned, it appears they are being good and were not banned to begin with!";
+        } else {
+            bannedUsers.remove(subject);
+            unbanMessage = subject + " has risen from the dead, aka unbanned";
+        }
+        MessageInfo info = new MessageInfo(displayName, unbanMessage);
         sendMessage(info);
-        // throw error if you aren't admin
-        // error if not found
     }
 
     @RequestMapping(value = "/ban", method = RequestMethod.GET)
@@ -265,46 +290,82 @@ public class Channel {
         return bannedUsernames;
     }
 
-    
-
-    @RequestMapping(value = "/bot/{botName}", method = RequestMethod.PUT)
-    public void addBot(@PathVariable("botName") String botName) {
-        BotInfo[] botsInformation = rest.getForObject("http://localhost:8080/botsInformation", BotInfo[].class);
-        for (BotInfo info : botsInformation) {
-            if (info.name.equals(botName)) {
-                botURLs.put(info.name, info.address);
-                System.out.println("Bot: " + botName + " has been added");
-                return;
-            }
+    @RequestMapping(value = "/admin", method = RequestMethod.PUT)
+    public void giveAdmin(@RequestBody ChannelCommand command) {
+        adminCheck(command.issuer);
+        String adminMessage;
+        if (!adminUsers.contains(command.subject)) {
+            adminUsers.add(command.subject);
+            adminMessage = command.subject + " has been blessed with the power of admin";
+        } else {
+            adminMessage = command.subject + " just got double admin, this doesn't do anything, but good job";
         }
-        MessageInfo info = new MessageInfo(displayName, "Bot: " + botName + " could not be found");
+        MessageInfo info = new MessageInfo(displayName, adminMessage);
         sendMessage(info);
     }
 
-    @RequestMapping(value = "/bot/{botName}", method = RequestMethod.DELETE)
-    public void removeBot(@PathVariable("botName") String botName) {
-        String results = botURLs.remove(botName);
-        // if map returns null it means the key did not have an association
-        if (results == null) {
-            MessageInfo info = new MessageInfo(displayName, "Bot: " + botName + " was not found and therefore could not be removed");
+    @RequestMapping(value = "/admin/{issuer}/{subject}", method = RequestMethod.DELETE)
+    public void takeAdmin(@PathVariable("issuer") String issuer, @PathVariable("subject") String subject) {
+        adminCheck(issuer);
+        String adminMessage;
+        if (!adminUsers.contains(subject)) {
+            adminMessage = subject + " wasn't an admin but someone wanted to take admin away from you, be careful out there";
+        } else {
+            adminUsers.remove(subject);
+            adminMessage = subject + " went back on his ninja's way and lost admin";
+        }
+        MessageInfo info = new MessageInfo(displayName, adminMessage);
+        sendMessage(info);
+    }
+
+    @RequestMapping(value = "/admin", method = RequestMethod.GET)
+    public String showAdmins() {
+        String adminUsernames = "------Admin Users------" + "\n";
+        for (String username : adminUsers) {
+            adminUsernames += username + "\n";
+        }
+        return adminUsernames;
+    }
+
+    @RequestMapping(value = "/bot", method = RequestMethod.PUT)
+    public void addBot(@RequestBody ChannelCommand command) {
+        adminCheck(command.issuer);
+        BotInfo[] botsInformation = rest.getForObject("http://localhost:8080/botsInformation", BotInfo[].class);
+        for (BotInfo info : botsInformation) {
+            if (info.name.equals(command.subject)) {
+                botURLs.put(info.name, info.address);
+                MessageInfo messageInfo = new MessageInfo(displayName, "Bot: " + command.subject + " has been added");
+                sendMessage(messageInfo);
+                return;
+            }
+        }
+        MessageInfo info = new MessageInfo(displayName, "Bot: " + command.subject + " could not be found");
+        sendMessage(info);
+    }
+
+    @RequestMapping(value = "/bot/{issuer}/{subject}", method = RequestMethod.DELETE)
+    public void removeBot(@PathVariable("issuer") String issuer, @PathVariable("subject") String subject) {
+        adminCheck(issuer);
+        if (botURLs.containsKey(subject)) {
+            botURLs.remove(subject);
+            MessageInfo info = new MessageInfo(displayName, "Bot: " + subject + " has been removed");
             sendMessage(info);
         } else {
-            System.out.println();
-            MessageInfo info = new MessageInfo(displayName, "Bot: " + botName + " has been removed");
+            
+            MessageInfo info = new MessageInfo(displayName, "Bot: " + subject + " was not found and therefore could not be removed");
             sendMessage(info);
         }
     }
 
     @RequestMapping(value = "/bots", method = RequestMethod.GET)
     public String listBots() {
-        String bots = "";
+        String bots = "------Current Bots------\n";
         for (String botName : botURLs.keySet()) {
             bots += botName + "\n";   
         }
         return bots;
     }
 
-    // TODO update the urls below to be more uniform
     @RequestMapping(value = "/message", method = RequestMethod.PUT)
     public void sendMessage(@RequestBody MessageInfo info) {
         // Get and update sequential id
@@ -316,12 +377,12 @@ public class Channel {
         collection.insertOne(document);
     }
 
-    @RequestMapping(value = "/loginMessages", method = RequestMethod.GET)
+    @RequestMapping(value = "/message", method = RequestMethod.GET)
     public LinkedList<MessageInfo> loginMessages() {
         return getMessages(currentId - LOGIN_MESSAGE_AMOUNT);
     }
 
-    @RequestMapping(value = "/getMessages/{currentMessageId}", method = RequestMethod.GET)
+    @RequestMapping(value = "/message/{currentMessageId}", method = RequestMethod.GET)
     public LinkedList<MessageInfo> getMessages(@PathVariable("currentMessageId") int currentMessageId) {
         // Create Query
         BasicDBObject filter = new BasicDBObject();

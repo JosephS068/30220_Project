@@ -59,7 +59,9 @@ public class AuthenticationServer {
 
     @RequestMapping(value = "/bot", method = RequestMethod.PUT)
     public void botList(@RequestBody BotInfo info) {
-        botsInfo.put(info.name, info);
+        if (!botsInfo.containsKey(info.name)) {
+            botsInfo.put(info.name, info);
+        }
     }
     
     @RequestMapping(value = "/bot/{botName}", method = RequestMethod.GET)
@@ -133,7 +135,7 @@ class HeartBeatChecker implements Runnable {
 
     public void start() {
         if (thread == null) {
-            thread = new Thread(this, "Check channels");
+            thread = new Thread(this, "Check channels and bots");
             thread.start();
         }
     }
