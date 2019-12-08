@@ -20,13 +20,13 @@ public class BotTimer {
     RestTemplate rest = new RestTemplate();
     private final static String name = "Timer";
     private final static String displayName = "[" + name + "]";
-    private final static String address = "http://localhost:8088";
+    private final static String address = "http://botTimer:8088";
     public final static BotInfo info = new BotInfo(name, address);
 
     @PostConstruct
     public void init() {
         // Send authentication server bot information
-        rest.put("http://localhost:8080/bot", info);
+        rest.put("http://authenticationServer:8080/bot", info);
         AuthServerChecker checker = new AuthServerChecker(name);
         checker.start();
     }
@@ -139,7 +139,7 @@ class AuthServerChecker implements Runnable {
             try {
                 // this will not be 10 seconds in production
                 TimeUnit.SECONDS.sleep(60);
-                rest.getForObject("http://localhost:8080/bot/" + name, BotInfo.class);
+                rest.getForObject("http://authenticationServer:8080/bot/" + name, BotInfo.class);
             } catch (InterruptedException e) {
                 System.out.println("Error occured while checking auth server registry");
             } catch (HttpClientErrorException e) {
@@ -147,7 +147,7 @@ class AuthServerChecker implements Runnable {
                 switch (statusCode) {
                 case 404:
                     System.out.println("Bot was not found in auth server, adding it back");
-                    rest.put("http://localhost:8080/bot", BotTimer.info);
+                    rest.put("http://authenticationServer:8080/bot", BotTimer.info);
                     break;
                 }
             } catch (Exception e) {

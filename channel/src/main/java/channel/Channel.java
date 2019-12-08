@@ -1,13 +1,15 @@
 package channel;
 import com.google.gson.Gson;
-
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -35,11 +37,15 @@ import core.ChannelInfo;
 import core.MessageInfo;
 import core.ChannelCommand;
 import core.CommandLineHelper;
+import core.ChannelConfiguration;
 
 @RestController
 public class Channel {
     private final static int LOGIN_MESSAGE_AMOUNT = 20;
     private static int currentId = 0;
+    private final static String ADMIN = "ADMIN";
+    private final static String AUTHORIZED = "AUTHORIZED";
+    private final static String BANNED = "BANNED";
 
     private static String name;
     private static String displayName;
@@ -53,43 +59,103 @@ public class Channel {
     private static MongoClient mongo;
     private static MongoCredential credential;
     private static MongoDatabase database;
-    private static MongoCollection<Document> collection;
+    private static MongoCollection<Document> configurationDB;
+    private static MongoCollection<Document> userStatusDB;
+    private static MongoCollection<Document> botDB;
+    private static MongoCollection<Document> messagesDB;
 
     private static RestTemplate rest = new RestTemplate();
     public static Console console = System.console();
+    private static Gson gson = new Gson();
 
     private final static Map<String, String> botURLs = new HashMap<String, String>();
     // Create mongodb for this later
-    private final static ArrayList<String> authorizedUsers = new ArrayList<String>();
-    private final static ArrayList<String> bannedUsers = new ArrayList<String>();
-    private final static ArrayList<String> adminUsers = new ArrayList<String>();
+    private static ArrayList<String> authorizedUsers = new ArrayList<String>();
+    private static ArrayList<String> bannedUsers = new ArrayList<String>();
+    private static ArrayList<String> adminUsers = new ArrayList<String>();
     
     @PostConstruct
     public void init() {
-        serverConfiguration();
-
         // Login to MongoDB
         mongo = new MongoClient("localhost", 27017);
         credential = MongoCredential.createCredential("admin", "Channel-Data", "admin".toCharArray());
         // Access database and get collection for message information
         database = mongo.getDatabase("Channel-Data");
-        collection = database.getCollection("Message-Information");
+        configurationDB = database.getCollection("Configuration");
+        userStatusDB = database.getCollection("User-Information");
+        botDB = database.getCollection("Bot-Information");
+        messagesDB = database.getCollection("Message-Information");
+
+        checkExistingConfigurations();
 
         // Send authentication server channel information
         info = new ChannelInfo(name, address, description);
-        rest.put("http://localhost:8080/channel", info);
-
-        // Just testing resets collection on start up
-        collection.drop();
-        database.createCollection("Message-Information");
+        rest.put("http://authenticationServer:8080/channel", info);
 
         AuthServerChecker checker = new AuthServerChecker(name);
         checker.start();
     }
 
+    public void checkExistingConfigurations() {
+        FindIterable<Document> iterDoc = configurationDB.find();
+        MongoCursor<Document> it = iterDoc.iterator();
+        if (it.hasNext()) {
+            System.out.println("This server already has config options would you like to use them?(y/n)");
+            boolean useExisting = CommandLineHelper.responseYesNo();
+            if (useExisting) {
+                ChannelConfiguration config = gson.fromJson(it.next().toJson(), ChannelConfiguration.class);
+                name = config.name;
+                displayName = "{" + name + "}";
+                address = config.address;
+                responseAddress = address + "/message";
+                description = config.description;
+                requiresPin = config.requiresPin;
+                pin = config.pin.toCharArray();
+                adminUsers = getUserForStatus(ADMIN);
+                bannedUsers = getUserForStatus(BANNED);
+                authorizedUsers = getUserForStatus(AUTHORIZED);
+                // Bots aren't always online, must be reconfigured everytime by admins
+            } else {
+                serverConfiguration();
+            }
+        } else {
+            System.out.println("This server has not been configured before, please provide additional details");
+            serverConfiguration();
+        }
+    }
+
+    public ArrayList<String> getUserForStatus(String Status) {
+        BasicDBObject filter = new BasicDBObject();
+        filter.append("status", new Document("$eq", Status));
+
+        BasicDBObject fields = new BasicDBObject();
+        fields.put("_id", 0);
+        fields.put("username", 1);
+
+        FindIterable<Document> iterDoc = userStatusDB
+            .find(filter)
+            .projection(fields);
+
+        MongoCursor<Document> it = iterDoc.iterator();
+        ArrayList<String> users = new ArrayList<String>();
+        while(it.hasNext()) {
+            String user = it.next().get("username").toString();
+            users.add(user);
+        }
+        return users;
+    }
+
     // Configuration of server from user input
     public void serverConfiguration() {
-        System.out.println("This server has not been configured before, please provide additional details");
+        // Drop collections to make sure no values have been brought over
+        userStatusDB.drop();
+        messagesDB.drop();
+        configurationDB.drop();
+
+        database.createCollection("Configuration");
+        database.createCollection("User-Information");
+        database.createCollection("Message-Information");
+
         name = CommandLineHelper.getServerName();
         displayName = "{" + name + "}";
 
@@ -121,11 +187,15 @@ public class Channel {
 
         adminUsers.add(adminAccount);
 
+        Document document = new Document("username", adminAccount).append("status", ADMIN);
+        userStatusDB.insertOne(document);
+
+        saveConfiguration();
         System.out.println("Thank you, the server will now finish start up");
     }
 
     public void addBots() {
-        BotInfo[] botsInformation = rest.getForObject("http://localhost:8080/botsInformation", BotInfo[].class);
+        BotInfo[] botsInformation = rest.getForObject("http://authenticationServer:8080/botsInformation", BotInfo[].class);
         if (botsInformation.length == 0) {
             System.out.println("No bots found skipping this section of configuration");
             return;
@@ -136,7 +206,7 @@ public class Channel {
         System.out.println("type none for none");
         System.out.println("or list the names seperated by spaces");
 
-        String botList = rest.getForObject("http://localhost:8080/botsList", String.class);
+        String botList = rest.getForObject("http://authenticationServer:8080/botsList", String.class);
         System.out.println("");
         System.out.println("Currently available bots");
         System.out.println("----------------------------------------------------");
@@ -207,6 +277,19 @@ public class Channel {
         }
     }
 
+    public void saveConfiguration() {
+        Document document = new Document("name", name)
+        .append("address", address)
+        .append("description", description)
+        .append("requiresPin", requiresPin);
+        if(pin != null) {
+            document.append("pin", new String(pin));
+        } else {
+            document.append("pin", " ");
+        }
+        configurationDB.insertOne(document);
+    }
+
     public void authorizationCheck(String username) {
         if (requiresPin && !authorizedUsers.contains(username)) {
             throw new NotAuthorizedException();
@@ -248,6 +331,8 @@ public class Channel {
         
         if (pinsMatch) {
             authorizedUsers.add(username);
+            Document document = new Document("username", username).append("status", AUTHORIZED);
+            userStatusDB.insertOne(document);
         } else {
             throw new InvalidPinException();
         }
@@ -260,6 +345,8 @@ public class Channel {
         if (!bannedUsers.contains(command.subject)) {
             bannedUsers.add(command.subject);
             banMessage = command.subject + " just got clapped";
+            Document document = new Document("username", command.subject).append("status", BANNED);
+            userStatusDB.insertOne(document);
         } else {
             banMessage = command.subject + " just got clapped again, a double ban isn't a thing though";
         }
@@ -275,6 +362,8 @@ public class Channel {
             unbanMessage = subject + " was supposed to be unbanned, it appears they are being good and were not banned to begin with!";
         } else {
             bannedUsers.remove(subject);
+            Document document = new Document("username", subject).append("status", BANNED);
+            userStatusDB.deleteOne(document);
             unbanMessage = subject + " has risen from the dead, aka unbanned";
         }
         MessageInfo info = new MessageInfo(displayName, unbanMessage);
@@ -296,6 +385,8 @@ public class Channel {
         String adminMessage;
         if (!adminUsers.contains(command.subject)) {
             adminUsers.add(command.subject);
+            Document document = new Document("username", command.subject).append("status", ADMIN);
+            userStatusDB.insertOne(document);
             adminMessage = command.subject + " has been blessed with the power of admin";
         } else {
             adminMessage = command.subject + " just got double admin, this doesn't do anything, but good job";
@@ -312,6 +403,8 @@ public class Channel {
             adminMessage = subject + " wasn't an admin but someone wanted to take admin away from you, be careful out there";
         } else {
             adminUsers.remove(subject);
+            Document document = new Document("username", subject).append("status", ADMIN);
+            userStatusDB.deleteOne(document);
             adminMessage = subject + " went back on his ninja's way and lost admin";
         }
         MessageInfo info = new MessageInfo(displayName, adminMessage);
@@ -330,7 +423,7 @@ public class Channel {
     @RequestMapping(value = "/bot", method = RequestMethod.PUT)
     public void addBot(@RequestBody ChannelCommand command) {
         adminCheck(command.issuer);
-        BotInfo[] botsInformation = rest.getForObject("http://localhost:8080/botsInformation", BotInfo[].class);
+        BotInfo[] botsInformation = rest.getForObject("http://authenticationServer:8080/botsInformation", BotInfo[].class);
         for (BotInfo info : botsInformation) {
             if (info.name.equals(command.subject)) {
                 botURLs.put(info.name, info.address);
@@ -374,7 +467,7 @@ public class Channel {
 
         // Get data from message info and insert it into the collection
         Document document = new Document("sequenceId", messageId).append("username", info.username).append("message", info.message);
-        collection.insertOne(document);
+        messagesDB.insertOne(document);
     }
 
     @RequestMapping(value = "/message", method = RequestMethod.GET)
@@ -395,15 +488,12 @@ public class Channel {
         fields.put("username", 1);
         fields.put("message", 1);
 
-        // TODO add orderby clause
-
         // Getting the iterator
-        MongoCursor<Document> it = collection
+        MongoCursor<Document> it = messagesDB
             .find(filter)
             .projection(fields)
             .iterator();
 
-        Gson gson = new Gson();
         LinkedList<MessageInfo> messages = new LinkedList<MessageInfo>();
         while (it.hasNext()) {
             MessageInfo message = gson.fromJson(it.next().toJson(), MessageInfo.class);
@@ -444,7 +534,7 @@ class AuthServerChecker implements Runnable {
             try{
                 // this will not be 10 seconds in production
                 TimeUnit.SECONDS.sleep(60);
-                rest.getForObject("http://localhost:8080/channel/" + name, ChannelInfo.class);
+                rest.getForObject("http://authenticationServer:8080/channel/" + name, ChannelInfo.class);
             } catch (InterruptedException e) {
                 System.out.println("Error occured while checking auth server registry");
             } catch (HttpClientErrorException e) {
@@ -452,7 +542,7 @@ class AuthServerChecker implements Runnable {
                 switch (statusCode) {
                 case 404:
                     System.out.println("Channel was not found in auth server, adding it back");
-                    rest.put("http://localhost:8080/channel", Channel.info);
+                    rest.put("http://authenticationServer:8080/channel", Channel.info);
                     break;
                 }
             } catch (Exception e) {

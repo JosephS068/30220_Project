@@ -1,0 +1,37 @@
+version: "3"
+services:
+  authenticationServer:
+    image: authenticationServer:latest
+    expose:
+      - 8080
+
+  botAlphabetizer:
+  image: botAlphabetizer:latest
+  expose:
+    - 8090
+  depends_on:
+    - authenticationServer
+
+  botAlphaOmegaQuoter:
+  image: botAlphaOmegaQuoter:latest
+  expose:
+    - 8089
+  depends_on:
+    - authenticationServer
+
+  botTimer:
+  image: botTimer:latest
+  expose:
+    - 8088
+  depends_on:
+    - authenticationServer
+
+  channel:
+  image: channel:latest
+  expose:
+    - 8084
+  ports:
+      - "8084:8084"
+      - '27017:27017'
+  depends_on:
+    - authenticationServer
